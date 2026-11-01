@@ -2,8 +2,8 @@ name: Oracle ARM Catcher
 
 on:
   schedule:
-    - cron: '*/5 * * * *' # Se ejecuta automáticamente cada 5 minutos
-  workflow_dispatch: # Permite activarlo manualmente
+    - cron: '*/5 * * * *' # Se ejecuta automáticamente cada 5 minutos en la nube
+  workflow_dispatch: # Te permite activarlo manualmente presionando un botón
 
 jobs:
   catch-instance:
@@ -20,15 +20,28 @@ jobs:
       - name: Configurar credenciales de OCI
         run: |
           mkdir -p ~/.oci
-          echo "[DEFAULT]" > ~/.oci/config
-          echo "user=${{ secrets.OCI_USER_OCID }}" >> ~/.oci/config
-          echo "fingerprint=${{ secrets.OCI_FINGERPRINT }}" >> ~/.oci/config
-          echo "tenancy=${{ secrets.OCI_TENANCY_OCID }}" >> ~/.oci/config
-          echo "region=${{ secrets.OCI_REGION }}" >> ~/.oci/config
-          echo "key_file=~/.oci/oci_api_key.pem" >> ~/.oci/config
           
-          # Guardar la clave privada desde los secretos
+          # Limpiamos espacios o saltos de línea accidentales en los secretos
+          USER_OCID=$(echo "${{ secrets.OCI_USER_OCID }}" | tr -d '[:space:]')
+          FINGERPRINT=$(echo "${{ secrets.OCI_FINGERPRINT }}" | tr -d '[:space:]')
+          TENANCY_OCID=$(echo "${{ secrets.OCI_TENANCY_OCID }}" | tr -d '[:space:]')
+          REGION=$(echo "${{ secrets.OCI_REGION }}" | tr -d '[:space:]')
+          
+          # Escribir el archivo de configuración limpiamente
+          cat << EOF > ~/.oci/config
+          [DEFAULT]
+          user=$USER_OCID
+          fingerprint=$FINGERPRINT
+          tenancy=$TENANCY_OCID
+          region=$REGION
+          key_file=/home/runner/.oci/oci_api_key.pem
+          EOF
+          
+          # Guardar la clave privada
           echo "${{ secrets.OCI_PRIVATE_KEY }}" > ~/.oci/oci_api_key.pem
+          
+          # Aplicar permisos estrictos (Obligatorio para OCI CLI)
+          chmod 600 ~/.oci/config
           chmod 600 ~/.oci/oci_api_key.pem
 
       - name: Intentar crear la máquina virtual
