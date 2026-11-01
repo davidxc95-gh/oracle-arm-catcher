@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Configurar OCI CLI
-        uses: oracle-actions/setup-oci-cli@v1.3.3
+        uses: sushilops/setup-oci-cli@v1.0.0
         with:
           user_ocid: ${{ secrets.OCI_USER_OCID }}
           tenancy_ocid: ${{ secrets.OCI_TENANCY_OCID }}
