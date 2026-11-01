@@ -53,16 +53,22 @@ jobs:
 
       - name: Enviar mensaje por Telegram si tiene éxito
         if: env.STATUS == 'SUCCESS'
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          curl -s -X POST "https://telegram.org{{ secrets.TELEGRAM_TOKEN }}/sendMessage" \
-            -d "chat_id=${{ secrets.TELEGRAM_CHAT_ID }}" \
+          curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_TOKEN/sendMessage" \
+            -d "chat_id=$TELEGRAM_CHAT_ID" \
             -d "text=🎉 ¡ÉXITO! Tu servidor Oracle ARM (1 OCPU / 6 GB RAM) ha sido creado con éxito. Ya puedes revisarlo en tu consola."
 
       - name: Alerta por Telegram si ocurre un error grave (No de capacidad)
         if: env.STATUS == 'UNKNOWN_ERROR'
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
           # Limpiamos el mensaje de error para evitar fallos de formato en curl
           CLEAN_MSG=$(echo "${{ env.ERROR_MSG }}" | head -n 2 | tr -d '"')
-          curl -s -X POST "https://telegram.org{{ secrets.TELEGRAM_TOKEN }}/sendMessage" \
-            -d "chat_id=${{ secrets.TELEGRAM_CHAT_ID }}" \
+          curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_TOKEN/sendMessage" \
+            -d "chat_id=$TELEGRAM_CHAT_ID" \
             -d "text=⚠️ Error en el script de Oracle: $CLEAN_MSG"
