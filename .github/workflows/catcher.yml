@@ -50,15 +50,15 @@ jobs:
           
           SUBNET_ID=$(oci network subnet list --compartment-id "$COMP_ID" --query "data[0].id" --raw-output)
           
-          IMAGE_ID=$(oci compute image list --compartment-id "$COMP_ID" --operating-system "Canonical Ubuntu" --operating-system-version "24.04" --query "data[0].id" --raw-output)
+          # CORREGIDO: Buscamos una imagen compatible específicamente con la forma AMD Micro
+          IMAGE_ID=$(oci compute image list --compartment-id "$COMP_ID" --shape "VM.Standard.E2.1.Micro" --operating-system "Canonical Ubuntu" --operating-system-version "24.04" --query "data[0].id" --raw-output)
           
           if [ -z "$IMAGE_ID" ] || [ "$IMAGE_ID" == "null" ]; then
-            IMAGE_ID=$(oci compute image list --compartment-id "$COMP_ID" --operating-system "Canonical Ubuntu" --query "data[0].id" --raw-output)
+            IMAGE_ID=$(oci compute image list --compartment-id "$COMP_ID" --shape "VM.Standard.E2.1.Micro" --operating-system "Canonical Ubuntu" --query "data[0].id" --raw-output)
           fi
 
           echo "Intentando solicitar la instancia AMD Micro en el dominio: $AD_NAME..."
           
-          # COMANDO PARA INSTANCIA AMD MICRO (Sin shape-config por ser de tamaño fijo)
           RESPONSE=$(oci compute instance launch \
             --availability-domain "$AD_NAME" \
             --compartment-id "$COMP_ID" \
