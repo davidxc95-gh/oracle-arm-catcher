@@ -41,7 +41,6 @@ jobs:
       - name: Intentar crear la máquina virtual
         id: create_vm
         run: |
-          # Registrar la hora actual del intento (Formato UTC)
           CURRENT_TIME=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
           echo "TIMESTAMP=$CURRENT_TIME" >> $GITHUB_ENV
 
@@ -73,7 +72,7 @@ jobs:
           
           if [[ "$RESPONSE" == *"Instance"* || "$RESPONSE" == *"PROVISIONING"* ]]; then
             echo "STATUS=SUCCESS" >> $GITHUB_ENV
-          elif [[ "$RESPONSE" == *"Out of capacity"* || "$RESPONSE" == *"insufficient"* || "$RESPONSE" == *"Capacity"* ]]; then
+          elif [[ "$RESPONSE" == *"Out of capacity"* || "$RESPONSE" == *"insufficient"* || "$RESPONSE" == *"Capacity"* || "$RESPONSE" == *"InternalError"* ]]; then
             echo "STATUS=CAPACITY_ERROR" >> $GITHUB_ENV
           else
             echo "STATUS=UNKNOWN_ERROR" >> $GITHUB_ENV
