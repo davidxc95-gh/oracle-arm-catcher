@@ -41,17 +41,19 @@ jobs:
       - name: Intentar crear la máquina virtual
         id: create_vm
         run: |
+          # Registrar la hora actual del intento (Formato UTC)
+          CURRENT_TIME=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
+          echo "TIMESTAMP=$CURRENT_TIME" >> $GITHUB_ENV
+
           echo "Buscando datos de red en Oracle..."
           AD_NAME=$(oci iam availability-domain list --query "data[0].name" --raw-output)
           COMP_ID="${{ secrets.OCI_COMPARTMENT_OCID }}"
           
           SUBNET_ID=$(oci network subnet list --compartment-id "$COMP_ID" --query "data[0].id" --raw-output)
           
-          # Cambiado a una consulta más genérica para evitar fallos si cambia el ID exacto de la imagen de Ubuntu 24.04
           IMAGE_ID=$(oci compute image list --compartment-id "$COMP_ID" --operating-system "Canonical Ubuntu" --operating-system-version "24.04" --query "data[0].id" --raw-output)
           
           if [ -z "$IMAGE_ID" ] || [ "$IMAGE_ID" == "null" ]; then
-            # Alternativa por si no encuentra la versión exacta
             IMAGE_ID=$(oci compute image list --compartment-id "$COMP_ID" --operating-system "Canonical Ubuntu" --query "data[0].id" --raw-output)
           fi
 
@@ -75,7 +77,6 @@ jobs:
             echo "STATUS=CAPACITY_ERROR" >> $GITHUB_ENV
           else
             echo "STATUS=UNKNOWN_ERROR" >> $GITHUB_ENV
-            # Guardar el mensaje limpiando saltos de línea conflictivos
             CLEAN_ERR=$(echo "$RESPONSE" | tr -d '\n' | tr -d '"')
             echo "ERROR_MSG=$CLEAN_ERR" >> $GITHUB_ENV
           fi
@@ -88,9 +89,19 @@ jobs:
         run: |
           curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_TOKEN/sendMessage" \
             -d "chat_id=$TELEGRAM_CHAT_ID" \
-            -d "text=🎉 ¡ÉXITO! Tu servidor Oracle ARM (1 OCPU / 6 GB RAM) ha sido creado con éxito. Ya puedes revisarlo en tu consola."
+            -d "text=🎉 ¡ÉXITO! Tu servidor Oracle ARM (1 OCPU / 6 GB RAM) ha sido creado a las ${{ env.TIMESTAMP }}. Ya puedes revisarlo en tu consola."
 
-      - name: Alerta por Telegram si ocurre un error grave (No de capacidad)
+      - name: Enviar aviso por Telegram de intento fallido (Sin capacidad)
+        if: ${{ env.STATUS == 'CAPACITY_ERROR' }}
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_TOKEN/sendMessage" \
+            -d "chat_id=$TELEGRAM_CHAT_ID" \
+            -d "text=⏳ Intento fallido por falta de capacidad. Hora: ${{ env.TIMESTAMP }}"
+
+      - name: Alerta por Telegram si ocurre un error grave (Desconocido)
         if: ${{ env.STATUS == 'UNKNOWN_ERROR' }}
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
@@ -98,4 +109,4 @@ jobs:
         run: |
           curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_TOKEN/sendMessage" \
             -d "chat_id=$TELEGRAM_CHAT_ID" \
-            -d "text=⚠️ Error en el script de Oracle: ${{ env.ERROR_MSG }}"
+            -d "text=⚠️ Error técnico a las ${{ env.TIMESTAMP }}: ${{ env.ERROR_MSG }}"
