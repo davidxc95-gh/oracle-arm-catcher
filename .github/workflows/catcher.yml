@@ -1,4 +1,4 @@
-Name: Oracle ARM Ampere Catcher
+name: Oracle ARM Ampere Catcher
 
 on:
   schedule:
