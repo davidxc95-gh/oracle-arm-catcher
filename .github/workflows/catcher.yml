@@ -46,7 +46,6 @@ jobs:
 
           echo "Generando par de claves SSH temporales para la VM..."
           ssh-keygen -t rsa -b 2048 -f ~/.ssh/id_rsa -N ""
-          SSH_PUB_KEY=$(cat ~/.ssh/id_rsa.pub)
           
           # Guardamos la clave privada de forma segura en las variables de entorno del runner
           {
@@ -79,7 +78,7 @@ jobs:
             --image-id "$IMAGE_ID" \
             --subnet-id "$SUBNET_ID" \
             --assign-public-ip true \
-            --ssh-authorized-keys "$SSH_PUB_KEY" \
+            --ssh-authorized-keys-file ~/.ssh/id_rsa.pub \
             2>&1) || true
           
           echo "Respuesta de Oracle: $RESPONSE"
