@@ -44,6 +44,17 @@ jobs:
           CURRENT_TIME=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
           echo "TIMESTAMP=$CURRENT_TIME" >> $GITHUB_ENV
 
+          echo "Generando par de claves SSH temporales para la VM..."
+          ssh-keygen -t rsa -b 2048 -f ~/.ssh/id_rsa -N ""
+          SSH_PUB_KEY=$(cat ~/.ssh/id_rsa.pub)
+          
+          # Guardamos la clave privada de forma segura en las variables de entorno del runner
+          {
+            echo 'SSH_PRIV_KEY<<EOF'
+            cat ~/.ssh/id_rsa
+            echo 'EOF'
+          } >> $GITHUB_ENV
+
           echo "Buscando datos de red en Oracle..."
           AD_NAME=$(oci iam availability-domain list --query "data[0].name" --raw-output)
           COMP_ID="${{ secrets.OCI_COMPARTMENT_OCID }}"
@@ -59,8 +70,7 @@ jobs:
 
           echo "Intentando solicitar la instancia ARM Ampere en el dominio: $AD_NAME..."
           
-          # NOTA: Configuramos 4 OCPUs y 24 GB de RAM (el máximo Always Free). 
-          # Si prefieres menos (ej. 2 OCPUs y 12 GB), puedes cambiar los valores en ocpus y memoryInGBs.
+          # NOTA: Configuramos 2 OCPUs y 12 GB de RAM. Puedes subirlo a 4 y 24 si lo prefieres.
           RESPONSE=$(oci compute instance launch \
             --availability-domain "$AD_NAME" \
             --compartment-id "$COMP_ID" \
@@ -69,6 +79,7 @@ jobs:
             --image-id "$IMAGE_ID" \
             --subnet-id "$SUBNET_ID" \
             --assign-public-ip true \
+            --ssh-authorized-keys "$SSH_PUB_KEY" \
             2>&1) || true
           
           echo "Respuesta de Oracle: $RESPONSE"
@@ -83,15 +94,24 @@ jobs:
             echo "ERROR_MSG=$CLEAN_ERR" >> $GITHUB_ENV
           fi
 
-      - name: Enviar mensaje por Telegram si tiene éxito
+      - name: Enviar mensaje y clave por Telegram si tiene éxito
         if: ${{ env.STATUS == 'SUCCESS' }}
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
+          # 1. Enviar aviso de texto
           curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_TOKEN/sendMessage" \
             -d "chat_id=$TELEGRAM_CHAT_ID" \
-            -d "text=🎉 ¡ÉXITO! Tu servidor Oracle ARM Ampere (4 OCPUs / 24GB) ha sido creado a las ${{ env.TIMESTAMP }}. Ya puedes revisarlo en tu consola."
+            -d "text=🎉 ¡ÉXITO! Tu servidor Oracle ARM Ampere ha sido creado a las ${{ env.TIMESTAMP }}. Revisa el documento adjunto para obtener tu llave privada SSH."
+
+          # 2. Enviar el archivo con la clave privada (.pem) directamente a Telegram
+          echo "${{ env.SSH_PRIV_KEY }}" > oci_vm_key.pem
+          chmod 600 oci_vm_key.pem
+          curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_TOKEN/sendDocument" \
+            -F "chat_id=$TELEGRAM_CHAT_ID" \
+            -F "document=@oci_vm_key.pem" \
+            -F "caption=🔑 Clave privada SSH (Guárdala bien en tu equipo)."
 
       - name: Enviar aviso por Telegram de intento fallido (Sin capacidad)
         if: ${{ env.STATUS == 'CAPACITY_ERROR' }}
