@@ -1,4 +1,4 @@
-Name: Oracle AMD Micro Catcher
+name: Oracle AMD Micro Catcher
 
 on:
   schedule:
