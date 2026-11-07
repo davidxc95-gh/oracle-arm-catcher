@@ -1,4 +1,4 @@
-name: Oracle ARM Ampere Catcher
+Name: Oracle AMD Micro Catcher
 
 on:
   schedule:
@@ -38,7 +38,7 @@ jobs:
           chmod 600 ~/.oci/config
           chmod 600 ~/.oci/oci_api_key.pem
 
-      - name: Intentar crear la máquina virtual ARM Ampere
+      - name: Intentar crear la máquina virtual AMD Micro
         id: create_vm
         run: |
           CURRENT_TIME=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
@@ -60,21 +60,20 @@ jobs:
           
           SUBNET_ID=$(oci network subnet list --compartment-id "$COMP_ID" --query "data[0].id" --raw-output)
           
-          # Buscamos una imagen compatible con la arquitectura ARM (VM.Standard.A1.Flex)
-          IMAGE_ID=$(oci compute image list --compartment-id "$COMP_ID" --shape "VM.Standard.A1.Flex" --operating-system "Canonical Ubuntu" --operating-system-version "24.04" --query "data[0].id" --raw-output)
+          # Buscamos una imagen compatible con la arquitectura AMD/x86_64 para la Micro (VM.Standard.E2.1.Micro)
+          IMAGE_ID=$(oci compute image list --compartment-id "$COMP_ID" --shape "VM.Standard.E2.1.Micro" --operating-system "Canonical Ubuntu" --operating-system-version "24.04" --query "data[0].id" --raw-output)
           
           if [ -z "$IMAGE_ID" ] || [ "$IMAGE_ID" == "null" ]; then
-            IMAGE_ID=$(oci compute image list --compartment-id "$COMP_ID" --shape "VM.Standard.A1.Flex" --operating-system "Canonical Ubuntu" --query "data[0].id" --raw-output)
+            IMAGE_ID=$(oci compute image list --compartment-id "$COMP_ID" --shape "VM.Standard.E2.1.Micro" --operating-system "Canonical Ubuntu" --query "data[0].id" --raw-output)
           fi
 
-          echo "Intentando solicitar la instancia ARM Ampere en el dominio: $AD_NAME..."
+          echo "Intentando solicitar la instancia AMD Micro en el dominio: $AD_NAME..."
           
-          # NOTA: Configuramos 2 OCPUs y 12 GB de RAM. Puedes subirlo a 4 y 24 si lo prefieres.
+          # NOTA: Al ser VM.Standard.E2.1.Micro (instancia fija), no requiere --shape-config
           RESPONSE=$(oci compute instance launch \
             --availability-domain "$AD_NAME" \
             --compartment-id "$COMP_ID" \
-            --shape "VM.Standard.A1.Flex" \
-            --shape-config '{"ocpus": 2, "memoryInGBs": 12}' \
+            --shape "VM.Standard.E2.1.Micro" \
             --image-id "$IMAGE_ID" \
             --subnet-id "$SUBNET_ID" \
             --assign-public-ip true \
@@ -102,7 +101,7 @@ jobs:
           # 1. Enviar aviso de texto
           curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_TOKEN/sendMessage" \
             -d "chat_id=$TELEGRAM_CHAT_ID" \
-            -d "text=🎉 ¡ÉXITO! Tu servidor Oracle ARM Ampere ha sido creado a las ${{ env.TIMESTAMP }}. Revisa el documento adjunto para obtener tu llave privada SSH."
+            -d "text=🎉 ¡ÉXITO! Tu servidor Oracle AMD Micro ha sido creado a las ${{ env.TIMESTAMP }}. Revisa el documento adjunto para obtener tu llave privada SSH."
 
           # 2. Enviar el archivo con la clave privada (.pem) directamente a Telegram
           echo "${{ env.SSH_PRIV_KEY }}" > oci_vm_key.pem
@@ -120,7 +119,7 @@ jobs:
         run: |
           curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_TOKEN/sendMessage" \
             -d "chat_id=$TELEGRAM_CHAT_ID" \
-            -d "text=⏳ Intento fallido ARM Ampere por falta de capacidad. Hora: ${{ env.TIMESTAMP }}"
+            -d "text=⏳ Intento fallido AMD Micro por falta de capacidad. Hora: ${{ env.TIMESTAMP }}"
 
       - name: Alerta por Telegram si ocurre un error grave (Desconocido)
         if: ${{ env.STATUS == 'UNKNOWN_ERROR' }}
@@ -130,4 +129,4 @@ jobs:
         run: |
           curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_TOKEN/sendMessage" \
             -d "chat_id=$TELEGRAM_CHAT_ID" \
-            -d "text=⚠️ Error técnico ARM Ampere a las ${{ env.TIMESTAMP }}: ${{ env.ERROR_MSG }}"
+            -d "text=⚠️ Error técnico AMD Micro a las ${{ env.TIMESTAMP }}: ${{ env.ERROR_MSG }}"
