@@ -1,4 +1,4 @@
-name: Oracle A1 Catcher (Always Free)
+name: Oracle A1 Catcher
 
 on:
   schedule:
@@ -6,7 +6,7 @@ on:
   workflow_dispatch:         # botón para lanzarlo a mano
 
 permissions:
-  actions: write             # permite que el workflow se desactive solo al tener éxito
+  actions: write             # permite que se desactive solo al tener éxito
 
 jobs:
   catch-instance:
@@ -34,7 +34,7 @@ jobs:
           echo "${{ secrets.OCI_PRIVATE_KEY }}" > ~/.oci/oci_api_key.pem
           chmod 600 ~/.oci/config ~/.oci/oci_api_key.pem
 
-      - name: Intentar crear la VM A1 (4 OCPU / 24 GB, gratis)
+      - name: Intentar crear la VM A1 (gratis)
         env:
           COMP_ID: ${{ secrets.OCI_COMPARTMENT_OCID }}
         run: |
@@ -57,28 +57,33 @@ jobs:
             --operating-system "Canonical Ubuntu" --operating-system-version "24.04" \
             --sort-by TIMECREATED --sort-order DESC --query "data[0].id" --raw-output)
 
-          # 4. Probar en cada centro de datos de la región
-          for AD in $(oci iam availability-domain list --query "data[].name" --raw-output | jq -r '.[]'); do
-            echo "Probando en $AD..."
-            if oci compute instance launch \
-                --availability-domain "$AD" \
-                --compartment-id "$COMP_ID" \
-                --shape "VM.Standard.A1.Flex" \
-                --shape-config '{"ocpus": 4, "memoryInGBs": 24}' \
-                --image-id "$IMAGE_ID" \
-                --subnet-id "$SUBNET_ID" \
-                --assign-public-ip true \
-                --ssh-authorized-keys-file vm_key.pub \
-                --display-name "a1-gratis" > launch.json 2> error.txt; then
-              INST_ID=$(jq -r '.data.id' launch.json)
-              echo "¡Creada! $INST_ID. Esperando a que encienda para obtener la IP..."
-              oci compute instance get --instance-id "$INST_ID" --wait-for-state RUNNING --max-wait-seconds 600 > /dev/null || true
-              IP=$(oci compute instance list-vnics --instance-id "$INST_ID" --query 'data[0]."public-ip"' --raw-output || echo "revisa la consola")
-              echo "STATUS=SUCCESS" >> $GITHUB_ENV
-              echo "VM_IP=$IP" >> $GITHUB_ENV
-              exit 0
-            fi
-            cat error.txt
+          # 4. Probar tamaños de mayor a menor, en cada centro de datos
+          ADS=$(oci iam availability-domain list --query "data[].name" --raw-output | jq -r '.[]')
+          for SIZE in "4 24" "2 12" "1 6"; do
+            set -- $SIZE; OCPU=$1; MEM=$2
+            for AD in $ADS; do
+              echo "Probando $OCPU núcleos / $MEM GB en $AD..."
+              if oci compute instance launch \
+                  --availability-domain "$AD" \
+                  --compartment-id "$COMP_ID" \
+                  --shape "VM.Standard.A1.Flex" \
+                  --shape-config "{\"ocpus\": $OCPU, \"memoryInGBs\": $MEM}" \
+                  --image-id "$IMAGE_ID" \
+                  --subnet-id "$SUBNET_ID" \
+                  --assign-public-ip true \
+                  --ssh-authorized-keys-file vm_key.pub \
+                  --display-name "a1-gratis" > launch.json 2> error.txt; then
+                INST_ID=$(jq -r '.data.id' launch.json)
+                echo "¡Creada! $INST_ID. Esperando a que encienda para obtener la IP..."
+                oci compute instance get --instance-id "$INST_ID" --wait-for-state RUNNING --max-wait-seconds 600 > /dev/null || true
+                IP=$(oci compute instance list-vnics --instance-id "$INST_ID" --query 'data[0]."public-ip"' --raw-output || echo "revisa la consola")
+                echo "STATUS=SUCCESS" >> $GITHUB_ENV
+                echo "VM_IP=$IP" >> $GITHUB_ENV
+                echo "VM_SIZE=$OCPU núcleos / $MEM GB" >> $GITHUB_ENV
+                exit 0
+              fi
+              cat error.txt
+            done
           done
 
           # 5. No se pudo: ¿falta de capacidad (normal) o error raro?
@@ -97,7 +102,7 @@ jobs:
         run: |
           curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_TOKEN/sendMessage" \
             -d "chat_id=$TELEGRAM_CHAT_ID" \
-            --data-urlencode "text=🎉 ¡VM A1 creada! (4 núcleos, 24 GB, gratis). IP: $VM_IP — Entra con: ssh -i vm_key.pem ubuntu@$VM_IP"
+            --data-urlencode "text=🎉 ¡VM A1 creada! ($VM_SIZE, gratis). IP: $VM_IP — Entra con: ssh -i vm_key.pem ubuntu@$VM_IP"
           cp vm_key vm_key.pem
           curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_TOKEN/sendDocument" \
             -F "chat_id=$TELEGRAM_CHAT_ID" \
