@@ -1,4 +1,4 @@
-name: Oracle Dual Catcher (A1 + Micro)
+name: Oracle Micro Catcher
 
 on:
   schedule:
@@ -6,7 +6,7 @@ on:
   workflow_dispatch:         # botón para lanzarlo a mano
 
 permissions:
-  actions: write             # permite que se desactive solo al tener éxito total
+  actions: write             # permite que se desactive solo al tener éxito
 
 jobs:
   catch-instances:
