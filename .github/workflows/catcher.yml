@@ -38,11 +38,9 @@ jobs:
         env:
           COMP_ID: ${{ secrets.OCI_COMPARTMENT_OCID }}
         run: |
-          # Verificar si ya existe una A1 activa
-          EXISTE_A1=$(oci compute instance list --compartment-id "$COMP_ID" --all 2>/dev/null \
-
-            | jq '[.data[]? | select(.shape=="VM.Standard.A1.Flex"
-                   and ."lifecycle-state"!="TERMINATED" and ."lifecycle-state"!="TERMINATING")] | length')
+          # Verificar si ya existe una A1 activa (Todo en una sola línea para evitar errores de sintaxis)
+          EXISTE_A1=$(oci compute instance list --compartment-id "$COMP_ID" --all 2>/dev/null | jq '[.data[]? | select(.shape=="VM.Standard.A1.Flex" and ."lifecycle-state"!="TERMINATED" and ."lifecycle-state"!="TERMINATING")] | length')
+          
           if [ "${EXISTE_A1:-0}" -gt 0 ]; then
             echo "Ya existe una A1. No se intenta crear otra."
             echo "STATUS=YA_EXISTE" >> $GITHUB_ENV
@@ -51,10 +49,8 @@ jobs:
           fi
 
           ssh-keygen -t ed25519 -f vm_key_a1 -N "" -q
-          SUBNET_ID=$(oci network subnet list --compartment-id "$COMP_ID" --query "data[0].id" --raw-output)
-          IMAGE_ID_A1=$(oci compute image list --compartment-id "$COMP_ID" --shape "VM.Standard.A1.Flex" \
-            --operating-system "Canonical Ubuntu" --operating-system-version "24.04" \
-            --sort-by TIMECREATED --sort-order DESC --query "data[0].id" --raw-output)
+          SUBNET_ID=$(oci network subnet list --compartment-id "$COMP_ID" --query "data.id" --raw-output)
+          IMAGE_ID_A1=$(oci compute image list --compartment-id "$COMP_ID" --shape "VM.Standard.A1.Flex" --operating-system "Canonical Ubuntu" --operating-system-version "24.04" --sort-by TIMECREATED --sort-order DESC --query "data.id" --raw-output)
 
           ADS=$(oci iam availability-domain list --query "data[].name" --raw-output | jq -r '.[]')
           for SIZE in "4 24" "2 12" "1 6"; do
@@ -74,7 +70,7 @@ jobs:
                 INST_ID=$(jq -r '.data.id' launch_a1.json)
                 echo "¡A1 Creada! $INST_ID."
                 oci compute instance get --instance-id "$INST_ID" --wait-for-state RUNNING --max-wait-seconds 600 > /dev/null || true
-                IP=$(oci compute instance list-vnics --instance-id "$INST_ID" --query 'data[0]."public-ip"' --raw-output || echo "revisa la consola")
+                IP=$(oci compute instance list-vnics --instance-id "$INST_ID" --query 'data."public-ip"' --raw-output || echo "revisa la consola")
                 echo "STATUS=SUCCESS" >> $GITHUB_ENV
                 echo "VM_IP=$IP" >> $GITHUB_ENV
                 echo "VM_SIZE=$OCPU núcleos / $MEM GB" >> $GITHUB_ENV
@@ -99,11 +95,11 @@ jobs:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_TOKEN/sendMessage" \
+          curl -s -X POST "https://telegram.org" \
             -d "chat_id=$TELEGRAM_CHAT_ID" \
             --data-urlencode "text=🎉 ¡VM A1 creada! ($VM_SIZE, gratis). IP: $VM_IP — Entra con: ssh -i vm_key_a1.pem ubuntu@$VM_IP"
           cp vm_key_a1 vm_key_a1.pem
-          curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_TOKEN/sendDocument" \
+          curl -s -X POST "https://telegram.org" \
             -F "chat_id=$TELEGRAM_CHAT_ID" \
             -F "document=@vm_key_a1.pem" \
             -F "caption=🔑 Llave privada SSH para la A1."
@@ -114,7 +110,7 @@ jobs:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_TOKEN/sendMessage" \
+          curl -s -X POST "https://telegram.org" \
             -d "chat_id=$TELEGRAM_CHAT_ID" \
             --data-urlencode "text=⚠️ Error raro en catcher A1: $(head -c 300 error_a1.txt)"
 
@@ -122,11 +118,9 @@ jobs:
         env:
           COMP_ID: ${{ secrets.OCI_COMPARTMENT_OCID }}
         run: |
-          # Verificar si ya existe una Micro activa
-          EXISTE_MICRO=$(oci compute instance list --compartment-id "$COMP_ID" --all 2>/dev/null \
-
-            | jq '[.data[]? | select(.shape=="VM.Standard.E2.1.Micro"
-                   and ."lifecycle-state"!="TERMINATED" and ."lifecycle-state"!="TERMINATING")] | length')
+          # Verificar si ya existe una Micro activa (Todo en una sola línea para evitar errores de sintaxis)
+          EXISTE_MICRO=$(oci compute instance list --compartment-id "$COMP_ID" --all 2>/dev/null | jq '[.data[]? | select(.shape=="VM.Standard.E2.1.Micro" and ."lifecycle-state"!="TERMINATED" and ."lifecycle-state"!="TERMINATING")] | length')
+          
           if [ "${EXISTE_MICRO:-0}" -gt 0 ]; then
             echo "Ya existe una Micro. No se intenta crear otra."
             echo "STATUS_MICRO=YA_EXISTE" >> $GITHUB_ENV
@@ -135,10 +129,8 @@ jobs:
           fi
 
           ssh-keygen -t ed25519 -f vm_key_micro -N "" -q
-          SUBNET_ID=$(oci network subnet list --compartment-id "$COMP_ID" --query "data[0].id" --raw-output)
-          IMAGE_ID_MICRO=$(oci compute image list --compartment-id "$COMP_ID" --shape "VM.Standard.E2.1.Micro" \
-            --operating-system "Canonical Ubuntu" --operating-system-version "24.04" \
-            --sort-by TIMECREATED --sort-order DESC --query "data[0].id" --raw-output)
+          SUBNET_ID=$(oci network subnet list --compartment-id "$COMP_ID" --query "data.id" --raw-output)
+          IMAGE_ID_MICRO=$(oci compute image list --compartment-id "$COMP_ID" --shape "VM.Standard.E2.1.Micro" --operating-system "Canonical Ubuntu" --operating-system-version "24.04" --sort-by TIMECREATED --sort-order DESC --query "data.id" --raw-output)
 
           ADS=$(oci iam availability-domain list --query "data[].name" --raw-output | jq -r '.[]')
           for AD in $ADS; do
@@ -155,7 +147,7 @@ jobs:
               INST_ID=$(jq -r '.data.id' launch_micro.json)
               echo "¡Micro Creada! $INST_ID."
               oci compute instance get --instance-id "$INST_ID" --wait-for-state RUNNING --max-wait-seconds 600 > /dev/null || true
-              IP=$(oci compute instance list-vnics --instance-id "$INST_ID" --query 'data[0]."public-ip"' --raw-output || echo "revisa la consola")
+              IP=$(oci compute instance list-vnics --instance-id "$INST_ID" --query 'data."public-ip"' --raw-output || echo "revisa la consola")
               echo "STATUS_MICRO=SUCCESS" >> $GITHUB_ENV
               echo "VM_IP_MICRO=$IP" >> $GITHUB_ENV
               echo "MICRO_DONE=true" >> $GITHUB_ENV
@@ -178,11 +170,11 @@ jobs:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_TOKEN/sendMessage" \
+          curl -s -X POST "https://telegram.org" \
             -d "chat_id=$TELEGRAM_CHAT_ID" \
             --data-urlencode "text=🎉 ¡VM Micro creada! (1 OCPU / 1 GB, gratis). IP: $VM_IP_MICRO — Entra con: ssh -i vm_key_micro.pem ubuntu@$VM_IP_MICRO"
           cp vm_key_micro vm_key_micro.pem
-          curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_TOKEN/sendDocument" \
+          curl -s -X POST "https://telegram.org" \
             -F "chat_id=$TELEGRAM_CHAT_ID" \
             -F "document=@vm_key_micro.pem" \
             -F "caption=🔑 Llave privada SSH para la Micro."
@@ -193,7 +185,7 @@ jobs:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_TOKEN/sendMessage" \
+          curl -s -X POST "https://telegram.org" \
             -d "chat_id=$TELEGRAM_CHAT_ID" \
             --data-urlencode "text=⚠️ Error raro en catcher Micro: $(head -c 300 error_micro.txt)"
 
