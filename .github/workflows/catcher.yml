@@ -1,4 +1,4 @@
-name: Oracle A1 Catcher
+name: Oracle Dual Catcher (A1 + Micro)
 
 on:
   schedule:
@@ -6,10 +6,10 @@ on:
   workflow_dispatch:         # botón para lanzarlo a mano
 
 permissions:
-  actions: write             # permite que se desactive solo al tener éxito
+  actions: write             # permite que se desactive solo al tener éxito total
 
 jobs:
-  catch-instance:
+  catch-instances:
     runs-on: ubuntu-latest
     steps:
       - name: Configurar Python
@@ -34,93 +34,171 @@ jobs:
           echo "${{ secrets.OCI_PRIVATE_KEY }}" > ~/.oci/oci_api_key.pem
           chmod 600 ~/.oci/config ~/.oci/oci_api_key.pem
 
-      - name: Intentar crear la VM A1 (gratis)
+      - name: 1. Intentar crear la VM A1 (gratis)
         env:
           COMP_ID: ${{ secrets.OCI_COMPARTMENT_OCID }}
         run: |
-          # 1. Si ya existe una A1 activa, no crear otra (evita duplicados y cobros)
-          EXISTE=$(oci compute instance list --compartment-id "$COMP_ID" --all 2>/dev/null \
+          # Verificar si ya existe una A1 activa
+          EXISTE_A1=$(oci compute instance list --compartment-id "$COMP_ID" --all 2>/dev/null \
+
             | jq '[.data[]? | select(.shape=="VM.Standard.A1.Flex"
                    and ."lifecycle-state"!="TERMINATED" and ."lifecycle-state"!="TERMINATING")] | length')
-          if [ "${EXISTE:-0}" -gt 0 ]; then
-            echo "Ya existe una A1. No se crea otra."
+          if [ "${EXISTE_A1:-0}" -gt 0 ]; then
+            echo "Ya existe una A1. No se intenta crear otra."
             echo "STATUS=YA_EXISTE" >> $GITHUB_ENV
+            echo "A1_DONE=true" >> $GITHUB_ENV
             exit 0
           fi
 
-          # 2. Llave SSH para entrar a la VM (se envía por Telegram solo si hay éxito)
-          ssh-keygen -t ed25519 -f vm_key -N "" -q
-
-          # 3. Red e imagen de Ubuntu 24.04 compatible con ARM (A1)
+          ssh-keygen -t ed25519 -f vm_key_a1 -N "" -q
           SUBNET_ID=$(oci network subnet list --compartment-id "$COMP_ID" --query "data[0].id" --raw-output)
-          IMAGE_ID=$(oci compute image list --compartment-id "$COMP_ID" --shape "VM.Standard.A1.Flex" \
+          IMAGE_ID_A1=$(oci compute image list --compartment-id "$COMP_ID" --shape "VM.Standard.A1.Flex" \
             --operating-system "Canonical Ubuntu" --operating-system-version "24.04" \
             --sort-by TIMECREATED --sort-order DESC --query "data[0].id" --raw-output)
 
-          # 4. Probar tamaños de mayor a menor, en cada centro de datos
           ADS=$(oci iam availability-domain list --query "data[].name" --raw-output | jq -r '.[]')
           for SIZE in "4 24" "2 12" "1 6"; do
             set -- $SIZE; OCPU=$1; MEM=$2
             for AD in $ADS; do
-              echo "Probando $OCPU núcleos / $MEM GB en $AD..."
+              echo "Probando A1: $OCPU núcleos / $MEM GB en $AD..."
               if oci compute instance launch \
                   --availability-domain "$AD" \
                   --compartment-id "$COMP_ID" \
                   --shape "VM.Standard.A1.Flex" \
                   --shape-config "{\"ocpus\": $OCPU, \"memoryInGBs\": $MEM}" \
-                  --image-id "$IMAGE_ID" \
+                  --image-id "$IMAGE_ID_A1" \
                   --subnet-id "$SUBNET_ID" \
                   --assign-public-ip true \
-                  --ssh-authorized-keys-file vm_key.pub \
-                  --display-name "a1-gratis" > launch.json 2> error.txt; then
-                INST_ID=$(jq -r '.data.id' launch.json)
-                echo "¡Creada! $INST_ID. Esperando a que encienda para obtener la IP..."
+                  --ssh-authorized-keys-file vm_key_a1.pub \
+                  --display-name "a1-gratis" > launch_a1.json 2> error_a1.txt; then
+                INST_ID=$(jq -r '.data.id' launch_a1.json)
+                echo "¡A1 Creada! $INST_ID."
                 oci compute instance get --instance-id "$INST_ID" --wait-for-state RUNNING --max-wait-seconds 600 > /dev/null || true
                 IP=$(oci compute instance list-vnics --instance-id "$INST_ID" --query 'data[0]."public-ip"' --raw-output || echo "revisa la consola")
                 echo "STATUS=SUCCESS" >> $GITHUB_ENV
                 echo "VM_IP=$IP" >> $GITHUB_ENV
                 echo "VM_SIZE=$OCPU núcleos / $MEM GB" >> $GITHUB_ENV
+                echo "A1_DONE=true" >> $GITHUB_ENV
                 exit 0
               fi
-              cat error.txt
+              cat error_a1.txt
             done
           done
 
-          # 5. No se pudo: ¿falta de capacidad (normal) o error raro?
-          if grep -qiE "capacity|InternalError|TooManyRequests" error.txt; then
-            echo "Sin capacidad por ahora. Se reintenta en 5 minutos."
+          if grep -qiE "capacity|InternalError|TooManyRequests" error_a1.txt; then
+            echo "Sin capacidad para A1 por ahora."
             echo "STATUS=CAPACITY_ERROR" >> $GITHUB_ENV
           else
             echo "STATUS=UNKNOWN_ERROR" >> $GITHUB_ENV
           fi
+          echo "A1_DONE=false" >> $GITHUB_ENV
 
-      - name: Avisar por Telegram del éxito (IP + llave)
-        if: env.STATUS == 'SUCCESS'
+      - name: Avisar por Telegram del éxito de la A1
+        if: env.A1_DONE == 'true' && env.STATUS == 'SUCCESS'
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
           curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_TOKEN/sendMessage" \
             -d "chat_id=$TELEGRAM_CHAT_ID" \
-            --data-urlencode "text=🎉 ¡VM A1 creada! ($VM_SIZE, gratis). IP: $VM_IP — Entra con: ssh -i vm_key.pem ubuntu@$VM_IP"
-          cp vm_key vm_key.pem
+            --data-urlencode "text=🎉 ¡VM A1 creada! ($VM_SIZE, gratis). IP: $VM_IP — Entra con: ssh -i vm_key_a1.pem ubuntu@$VM_IP"
+          cp vm_key_a1 vm_key_a1.pem
           curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_TOKEN/sendDocument" \
             -F "chat_id=$TELEGRAM_CHAT_ID" \
-            -F "document=@vm_key.pem" \
-            -F "caption=🔑 Llave privada SSH. Descárgala, guárdala y BORRA este mensaje del chat."
+            -F "document=@vm_key_a1.pem" \
+            -F "caption=🔑 Llave privada SSH para la A1."
 
-      - name: Avisar por Telegram de un error raro
-        if: env.STATUS == 'UNKNOWN_ERROR'
+      - name: Avisar por Telegram de error raro en la A1
+        if: env.A1_DONE == 'false' && env.STATUS == 'UNKNOWN_ERROR'
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
           curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_TOKEN/sendMessage" \
             -d "chat_id=$TELEGRAM_CHAT_ID" \
-            --data-urlencode "text=⚠️ Error en el catcher A1: $(head -c 400 error.txt)"
+            --data-urlencode "text=⚠️ Error raro en catcher A1: $(head -c 300 error_a1.txt)"
 
-      - name: Desactivar este workflow (ya hay VM)
-        if: env.STATUS == 'SUCCESS' || env.STATUS == 'YA_EXISTE'
+      - name: 2. Intentar crear la VM Micro (gratis)
+        env:
+          COMP_ID: ${{ secrets.OCI_COMPARTMENT_OCID }}
+        run: |
+          # Verificar si ya existe una Micro activa
+          EXISTE_MICRO=$(oci compute instance list --compartment-id "$COMP_ID" --all 2>/dev/null \
+
+            | jq '[.data[]? | select(.shape=="VM.Standard.E2.1.Micro"
+                   and ."lifecycle-state"!="TERMINATED" and ."lifecycle-state"!="TERMINATING")] | length')
+          if [ "${EXISTE_MICRO:-0}" -gt 0 ]; then
+            echo "Ya existe una Micro. No se intenta crear otra."
+            echo "STATUS_MICRO=YA_EXISTE" >> $GITHUB_ENV
+            echo "MICRO_DONE=true" >> $GITHUB_ENV
+            exit 0
+          fi
+
+          ssh-keygen -t ed25519 -f vm_key_micro -N "" -q
+          SUBNET_ID=$(oci network subnet list --compartment-id "$COMP_ID" --query "data[0].id" --raw-output)
+          IMAGE_ID_MICRO=$(oci compute image list --compartment-id "$COMP_ID" --shape "VM.Standard.E2.1.Micro" \
+            --operating-system "Canonical Ubuntu" --operating-system-version "24.04" \
+            --sort-by TIMECREATED --sort-order DESC --query "data[0].id" --raw-output)
+
+          ADS=$(oci iam availability-domain list --query "data[].name" --raw-output | jq -r '.[]')
+          for AD in $ADS; do
+            echo "Probando Micro (AMD) en $AD..."
+            if oci compute instance launch \
+                --availability-domain "$AD" \
+                --compartment-id "$COMP_ID" \
+                --shape "VM.Standard.E2.1.Micro" \
+                --image-id "$IMAGE_ID_MICRO" \
+                --subnet-id "$SUBNET_ID" \
+                --assign-public-ip true \
+                --ssh-authorized-keys-file vm_key_micro.pub \
+                --display-name "micro-gratis" > launch_micro.json 2> error_micro.txt; then
+              INST_ID=$(jq -r '.data.id' launch_micro.json)
+              echo "¡Micro Creada! $INST_ID."
+              oci compute instance get --instance-id "$INST_ID" --wait-for-state RUNNING --max-wait-seconds 600 > /dev/null || true
+              IP=$(oci compute instance list-vnics --instance-id "$INST_ID" --query 'data[0]."public-ip"' --raw-output || echo "revisa la consola")
+              echo "STATUS_MICRO=SUCCESS" >> $GITHUB_ENV
+              echo "VM_IP_MICRO=$IP" >> $GITHUB_ENV
+              echo "MICRO_DONE=true" >> $GITHUB_ENV
+              exit 0
+            fi
+            cat error_micro.txt
+          done
+
+          if grep -qiE "capacity|InternalError|TooManyRequests" error_micro.txt; then
+            echo "Sin capacidad para Micro por ahora."
+            echo "STATUS_MICRO=CAPACITY_ERROR" >> $GITHUB_ENV
+          else
+            echo "STATUS_MICRO=UNKNOWN_ERROR" >> $GITHUB_ENV
+          fi
+          echo "MICRO_DONE=false" >> $GITHUB_ENV
+
+      - name: Avisar por Telegram del éxito de la Micro
+        if: env.MICRO_DONE == 'true' && env.STATUS_MICRO == 'SUCCESS'
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_TOKEN/sendMessage" \
+            -d "chat_id=$TELEGRAM_CHAT_ID" \
+            --data-urlencode "text=🎉 ¡VM Micro creada! (1 OCPU / 1 GB, gratis). IP: $VM_IP_MICRO — Entra con: ssh -i vm_key_micro.pem ubuntu@$VM_IP_MICRO"
+          cp vm_key_micro vm_key_micro.pem
+          curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_TOKEN/sendDocument" \
+            -F "chat_id=$TELEGRAM_CHAT_ID" \
+            -F "document=@vm_key_micro.pem" \
+            -F "caption=🔑 Llave privada SSH para la Micro."
+
+      - name: Avisar por Telegram de error raro en la Micro
+        if: env.MICRO_DONE == 'false' && env.STATUS_MICRO == 'UNKNOWN_ERROR'
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_TOKEN/sendMessage" \
+            -d "chat_id=$TELEGRAM_CHAT_ID" \
+            --data-urlencode "text=⚠️ Error raro en catcher Micro: $(head -c 300 error_micro.txt)"
+
+      - name: Desactivar este workflow (Solo si ambas instancias están listas o ya existen)
+        if: (env.A1_DONE == 'true') && (env.MICRO_DONE == 'true')
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh workflow disable "${{ github.workflow }}" --repo "${{ github.repository }}"
