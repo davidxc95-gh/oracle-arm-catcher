@@ -54,7 +54,7 @@ jobs:
           IMAGE_ID_A1=$(oci compute image list --compartment-id "$COMP_ID" --shape "VM.Standard.A1.Flex" --operating-system "Canonical Ubuntu" --operating-system-version "24.04" --sort-by TIMECREATED --sort-order DESC --query "data[0].id" --raw-output)
 
           ADS=$(oci iam availability-domain list --query "data[].name" --raw-output | jq -r '.[]')
-          for SIZE in "4 24" "2 12" "1 6"; do
+          for SIZE in "2 12" "1 6"; do
             set -- $SIZE; OCPU=$1; MEM=$2
             for AD in $ADS; do
               echo "Probando A1: $OCPU núcleos / $MEM GB en $AD..."
