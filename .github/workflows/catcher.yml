@@ -96,6 +96,7 @@ jobs:
                   --display-name "a1-gratis" > launch_a1.json 2> error_a1.txt; then
                 INST_ID=$(jq -r '.data.id' launch_a1.json)
                 echo "A1 Creada! $INST_ID."
+                echo "$(TZ=America/Santiago date '+%Y-%m-%d %H:%M:%S') | A1 ${OCPU}/${MEM} ${AD##*:} | CREADA $INST_ID" >> intentos_pendientes.txt
                 # Esperar a que tenga VNIC + IP publica (con reintentos)
                 IP=""
                 for i in $(seq 1 30); do
@@ -110,6 +111,13 @@ jobs:
                 echo "A1_DONE=true" >> $GITHUB_ENV
                 exit 0
               fi
+              ERRMSG=$(head -c 160 error_a1.txt | tr '\n|' '  ')
+              if echo "$ERRMSG" | grep -qiE "capacity|InternalError|TooManyRequests"; then
+                RES="SIN_CAPACIDAD"
+              else
+                RES="ERROR: $ERRMSG"
+              fi
+              echo "$(TZ=America/Santiago date '+%Y-%m-%d %H:%M:%S') | A1 ${OCPU}/${MEM} ${AD##*:} | $RES" >> intentos_pendientes.txt
               cat error_a1.txt
             done
           done
@@ -179,6 +187,7 @@ SSH desde tu PC: ssh -i <ruta>\oci_freetier ubuntu@${VM_IP}")
                 --display-name "micro-gratis" > launch_micro.json 2> error_micro.txt; then
               INST_ID=$(jq -r '.data.id' launch_micro.json)
               echo "Micro Creada! $INST_ID."
+              echo "$(TZ=America/Santiago date '+%Y-%m-%d %H:%M:%S') | Micro ${AD##*:} | CREADA $INST_ID" >> intentos_pendientes.txt
               # Esperar a que tenga VNIC + IP publica (con reintentos)
               IP=""
               for i in $(seq 1 30); do
@@ -192,6 +201,13 @@ SSH desde tu PC: ssh -i <ruta>\oci_freetier ubuntu@${VM_IP}")
               echo "MICRO_DONE=true" >> $GITHUB_ENV
               exit 0
             fi
+            ERRMSG=$(head -c 160 error_micro.txt | tr '\n|' '  ')
+            if echo "$ERRMSG" | grep -qiE "capacity|InternalError|TooManyRequests"; then
+              RES="SIN_CAPACIDAD"
+            else
+              RES="ERROR: $ERRMSG"
+            fi
+            echo "$(TZ=America/Santiago date '+%Y-%m-%d %H:%M:%S') | Micro ${AD##*:} | $RES" >> intentos_pendientes.txt
             cat error_micro.txt
           done
 
@@ -227,6 +243,31 @@ SSH desde tu PC: ssh -i <ruta>\oci_freetier ubuntu@${VM_IP_MICRO}")
             -d "chat_id=${TELEGRAM_CHAT_ID}" \
             --data-urlencode "text=⚠️ Error raro en catcher Micro: $(head -c 300 error_micro.txt)")
           echo "Respuesta Telegram: $(echo "$RESP" | head -c 300)"
+
+      # Guarda los intentos de esta ejecucion en Object Storage (gratis en tu
+      # free tier) para que el workflow "Reporte Telegram" los lea despues.
+      - name: Registrar intentos del dia en Object Storage
+        if: always()
+        env:
+          COMP_ID: ${{ secrets.OCI_COMPARTMENT_OCID }}
+        run: |
+          if [ ! -s intentos_pendientes.txt ]; then
+            echo "Sin intentos que registrar en esta ejecucion."
+            exit 0
+          fi
+          NS=$(oci os ns get --query '"data"' --raw-output)
+          BUCKET="catcher-intents"
+          # Crear el bucket si no existe (el error "ya existe" se ignora)
+          oci os bucket create --compartment-id "$COMP_ID" --name "$BUCKET" \
+            --storage-tier Standard >/dev/null 2>&1 || true
+          TS=$(TZ=America/Santiago date +%Y%m%dT%H%M%S)
+          OBJ="${TS}-${GITHUB_RUN_ID}.log"
+          if oci os object put --namespace-name "$NS" --bucket-name "$BUCKET" \
+               --name "$OBJ" --file intentos_pendientes.txt --force; then
+            echo "Intentos guardados en $BUCKET/$OBJ ($(wc -l < intentos_pendientes.txt) lineas)."
+          else
+            echo "::warning::No se pudieron guardar los intentos en Object Storage."
+          fi
 
       - name: Desactivar este workflow (Solo si ambas instancias estan listas o ya existen)
         if: (env.A1_DONE == 'true') && (env.MICRO_DONE == 'true')
